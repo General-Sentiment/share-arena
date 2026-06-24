@@ -175,6 +175,16 @@ function blockText(b) {
   return (richText(b.content) || richText(b.description)).trim();
 }
 
+// The block's body as markdown source (content for Text blocks, description for others).
+function blockMarkdown(b) {
+  const md = (v) => {
+    if (!v) return '';
+    if (typeof v === 'string') return v;
+    return v.markdown || v.plain || '';
+  };
+  return (md(b.content) || md(b.description)).trim();
+}
+
 function hostOf(url) {
   try { return new URL(url).hostname.replace(/^www\./, ''); } catch (_) { return ''; }
 }
@@ -273,24 +283,81 @@ function truncToWidth(ctx, text, maxW) {
   return t + '…';
 }
 
-// Text blocks: fixed size, top-left aligned, clipped to the square.
-function drawTextBlock(ctx, text, box, theme, fontSize) {
+/* Minimal markdown for block bodies: headings -> bold, **bold** inline, links -> their text. */
+function mdInline(text) {
+  const s = text
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')     // images -> drop
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')  // links -> label
+    .replace(/`([^`]+)`/g, '$1');             // inline code -> text
+  const segs = [];
+  const re = /(\*\*|__)(.+?)\1/g;
+  let last = 0;
+  let m;
+  while ((m = re.exec(s))) {
+    if (m.index > last) segs.push({ text: s.slice(last, m.index), bold: false });
+    segs.push({ text: m[2], bold: true });
+    last = m.index + m[0].length;
+  }
+  if (last < s.length) segs.push({ text: s.slice(last), bold: false });
+  return segs.length ? segs : [{ text: s, bold: false }];
+}
+
+function mdParse(md) {
+  const out = [];
+  for (const raw of md.split(/\r?\n/)) {
+    const line = raw.replace(/\s+$/, '');
+    if (!line.trim()) { out.push(null); continue; }              // blank -> paragraph gap
+    const h = line.match(/^\s{0,3}(#{1,6})\s+(.*)$/);
+    if (h) { out.push(mdInline(h[2]).map((x) => ({ text: x.text, bold: true }))); continue; } // heading -> bold
+    out.push(mdInline(line.replace(/^\s*[-*+]\s+/, '• ').replace(/^>\s?/, '')));
+  }
+  return out;
+}
+
+function mdWrap(ctx, segs, maxW, fontOf) {
+  const words = [];
+  for (const seg of segs) for (const w of seg.text.split(/\s+/)) if (w) words.push({ text: w, bold: seg.bold });
+  const lines = [];
+  let line = [];
+  let lineW = 0;
+  for (const w of words) {
+    ctx.font = fontOf(w.bold);
+    const ww = ctx.measureText(w.text).width;
+    const sp = line.length ? ctx.measureText(' ').width : 0;
+    if (line.length && lineW + sp + ww > maxW) { lines.push(line); line = [{ ...w, lead: false }]; lineW = ww; }
+    else { line.push({ ...w, lead: line.length > 0 }); lineW += sp + ww; }
+  }
+  if (line.length) lines.push(line);
+  return lines;
+}
+
+// Fixed size, top-left, clipped to the square; renders block bodies with light markdown.
+function drawMarkdown(ctx, md, box, theme, fontSize) {
   const pad = box.s * TEXT_PAD_FACTOR;
+  const innerW = box.s - pad * 2;
+  const lh = fontSize * TEXT_LINE_HEIGHT;
+  const fontOf = (bold) => `${bold ? 'bold ' : ''}${fontSize}px ${FONT}`;
   ctx.save();
   ctx.beginPath();
   ctx.rect(box.x, box.y, box.s, box.s);
   ctx.clip();
-  ctx.font = `${fontSize}px ${FONT}`;
   ctx.fillStyle = theme.ink;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
-  const innerW = box.s - pad * 2;
-  const lines = wrapLines(ctx, text, innerW);
   let y = box.y + pad;
-  const x = box.x + pad;
-  for (const ln of lines) {
-    ctx.fillText(ln, x, y);
-    y += fontSize * TEXT_LINE_HEIGHT;
+  const x0 = box.x + pad;
+  for (const para of mdParse(md)) {
+    if (para === null) { y += lh * 0.5; continue; }
+    for (const line of mdWrap(ctx, para, innerW, fontOf)) {
+      let x = x0;
+      for (const w of line) {
+        ctx.font = fontOf(w.bold);
+        const t = (w.lead ? ' ' : '') + w.text;
+        ctx.fillText(t, x, y);
+        x += ctx.measureText(t).width;
+      }
+      y += lh;
+    }
   }
   ctx.restore();
 }
@@ -374,8 +441,7 @@ function drawBlockFace(ctx, block, x, y, size, theme, img, fontSize) {
       drawPlayButton(ctx, x + size / 2, y + size / 2, size * 0.09);
     }
   } else {
-    const text = kind === 'text' ? (blockText(block) || blockTitle(block)) : blockTitle(block);
-    drawTextBlock(ctx, text, { x, y, s: size }, theme, fontSize);
+    drawMarkdown(ctx, blockMarkdown(block) || blockTitle(block), { x, y, s: size }, theme, fontSize);
   }
 
   if (state.border) {
