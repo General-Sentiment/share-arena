@@ -1,0 +1,5 @@
+# OS
+.DS_Store
+
+# Local tooling (preview server config)
+.claude/
