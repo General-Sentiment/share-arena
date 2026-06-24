@@ -1,7 +1,9 @@
 # Share Are.na
 
 A tiny, dependency-free web page that turns an **Are.na channel or block** into
-share-ready images — rendered in Are.na's own block style.
+share-ready images, rendered in Are.na's own block style.
+
+**Live:** https://general-sentiment.github.io/share-arena/
 
 Paste a link (or a slug, or an ID). You get the block as a square with a border —
 exactly like Are.na — composed onto three social formats, each downloadable as a PNG.
