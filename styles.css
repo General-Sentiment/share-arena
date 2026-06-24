@@ -113,7 +113,7 @@ button { font-family: var(--font); }
 .intro { padding: 28px 2px; }
 .intro-lead { font-size: 14px; color: var(--ink); margin: 0 0 14px; }
 .credit { font-size: 13px; color: var(--muted); margin: 0 0 14px; }
-.credit a { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
+.credit a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .examples { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
 .examples button {
   font-family: var(--font);
@@ -231,6 +231,7 @@ button { font-family: var(--font); }
   cursor: pointer;
 }
 .chip.is-active { background: var(--ink); color: #fff; border-color: var(--ink); }
+.chip:disabled { opacity: 0.35; cursor: default; }
 .chip-mark { height: 11px; width: auto; display: block; color: currentColor; }
 
 /* ---------------- Bottom strip (block selector) ---------------- */

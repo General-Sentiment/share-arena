@@ -41,6 +41,7 @@ const state = {
   theme: 'white',
   fit: 'contain',
   caption: true,
+  url: true,
   logo: false,
   border: true,
   layout: 'single', // 'single' | 'grid' (channels only)
@@ -67,6 +68,7 @@ const el = {
   bgToggle: $('#bgToggle'),
   fitToggle: $('#fitToggle'),
   captionToggle: $('#captionToggle'),
+  urlToggle: $('#urlToggle'),
   logoToggle: $('#logoToggle'),
   borderToggle: $('#borderToggle'),
   strip: $('#strip'),
@@ -123,10 +125,13 @@ async function fetchChannel(ref) {
     page += 1;
   }
 
+  // nested channels aren't content blocks — keep them out of the scroller, grid, and selection
+  blocks = blocks.filter((b) => b.type !== 'Channel');
+
   const channel = {
     title: meta.title || meta.slug,
     slug: meta.slug,
-    length: (meta.counts && meta.counts.contents) || blocks.length,
+    length: blocks.length,
     user: { slug: meta.owner && meta.owner.slug, name: meta.owner && meta.owner.name },
   };
   return { channel, blocks };
@@ -390,33 +395,38 @@ function drawLogo(ctx, cx, top, targetW, color) {
 }
 
 function footerMetrics(w) {
-  const m = { hasLogo: state.logo, hasCap: state.caption };
-  // title and url are the same size
-  const capF = Math.round(w * 0.0205);
-  m.titleF = m.hasCap ? capF : 0;
-  m.handleF = m.hasCap ? capF : 0;
-  m.gapTitleHandle = m.hasCap ? w * 0.012 : 0;
-  m.capH = m.hasCap ? (m.titleF + m.gapTitleHandle + m.handleF) : 0;
+  const hasCap = state.caption;             // title line
+  const hasUrl = state.caption && state.url; // url line (only meaningful with caption)
+  const m = { hasLogo: state.logo, hasCap, hasUrl };
+  const capF = Math.round(w * 0.0205);       // title and url are the same size
+  m.titleF = hasCap ? capF : 0;
+  m.handleF = hasUrl ? capF : 0;
+  m.gapTitleHandle = hasUrl ? w * 0.012 : 0;
+  m.capH = (hasCap ? m.titleF : 0) + (hasUrl ? m.gapTitleHandle + m.handleF : 0);
   // logo sits beneath the text, a third of its former size
   m.logoW = m.hasLogo ? (w * 0.10 / 3) : 0;
   m.logoH = m.hasLogo ? m.logoW * (ARENA_H / ARENA_W) : 0;
-  m.gapCapLogo = (m.hasLogo && m.hasCap) ? w * 0.022 : 0;
+  m.gapCapLogo = (m.hasLogo && hasCap) ? w * 0.022 : 0;
   m.total = m.capH + m.gapCapLogo + m.logoH;
   return m;
 }
 
 function drawFooter(ctx, block, top, w, theme, m) {
   let y = top;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = theme.cap;
   if (m.hasCap) {
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    ctx.fillStyle = theme.cap;
     ctx.font = `bold ${m.titleF}px ${FONT}`;
     ctx.fillText(truncToWidth(ctx, captionTitle(block), w * 0.86), w / 2, y);
-    y += m.titleF + m.gapTitleHandle;
-    ctx.font = `${m.handleF}px ${FONT}`;
-    ctx.fillText(truncToWidth(ctx, handleText(block), w * 0.86), w / 2, y);
-    y += m.handleF + m.gapCapLogo;
+    y += m.titleF;
+    if (m.hasUrl) {
+      y += m.gapTitleHandle;
+      ctx.font = `${m.handleF}px ${FONT}`;
+      ctx.fillText(truncToWidth(ctx, handleText(block), w * 0.86), w / 2, y);
+      y += m.handleF;
+    }
+    y += m.gapCapLogo;
   }
   if (m.hasLogo) {
     drawLogo(ctx, w / 2, y, m.logoW, theme.cap);
@@ -712,15 +722,17 @@ function wireControls() {
   seg(el.fitToggle, 'fit', 'fit');
 
   // boolean chips
-  const chip = (btn, key) => btn.addEventListener('click', () => {
+  const chip = (btn, key, after) => btn.addEventListener('click', () => {
     state[key] = !state[key];
     btn.classList.toggle('is-active', state[key]);
     btn.setAttribute('aria-pressed', String(state[key]));
+    if (after) after();
     saveSettings();
     renderPreview();
   });
   chip(el.borderToggle, 'border');
-  chip(el.captionToggle, 'caption');
+  chip(el.captionToggle, 'caption', updateUrlChip); // url depends on caption
+  chip(el.urlToggle, 'url');
   chip(el.logoToggle, 'logo');
 
   el.download.addEventListener('click', downloadImage);
@@ -748,7 +760,12 @@ async function loadExamples() {
 
 /* --------------------------------------------------------------- settings */
 const LS_KEY = 'share-arena:settings';
-const PERSIST_KEYS = ['format', 'theme', 'fit', 'caption', 'logo', 'border', 'layout'];
+const PERSIST_KEYS = ['format', 'theme', 'fit', 'caption', 'url', 'logo', 'border', 'layout'];
+
+// the URL line only applies when the caption is on, so its chip follows caption's state
+function updateUrlChip() {
+  el.urlToggle.disabled = !state.caption;
+}
 
 function saveSettings() {
   try {
@@ -771,10 +788,11 @@ function syncControls() {
   setActive(el.bgToggle, (b) => b.dataset.bg === state.theme);
   setActive(el.fitToggle, (b) => b.dataset.fit === state.fit);
   setActive(el.layoutToggle, (b) => b.dataset.layout === state.layout);
-  for (const [btn, on] of [[el.borderToggle, state.border], [el.captionToggle, state.caption], [el.logoToggle, state.logo]]) {
+  for (const [btn, on] of [[el.borderToggle, state.border], [el.captionToggle, state.caption], [el.urlToggle, state.url], [el.logoToggle, state.logo]]) {
     btn.classList.toggle('is-active', on);
     btn.setAttribute('aria-pressed', String(on));
   }
+  updateUrlChip();
 }
 
 /* -------------------------------------------------------------------- init */
